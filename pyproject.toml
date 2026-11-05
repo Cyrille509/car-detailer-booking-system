@@ -7,8 +7,11 @@ name = "car-detailer-booking-system"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
+    "alembic>=1.20",
     "fastapi>=0.162",
+    "psycopg[binary]>=3.3",
     "pydantic-settings>=2.16",
+    "sqlalchemy>=2.1",
     "uvicorn>=0.54",
 ]
 
@@ -23,3 +26,6 @@ include = ["app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.alembic]
+script_location = "%(here)s/migrations"
