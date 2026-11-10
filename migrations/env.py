@@ -4,11 +4,12 @@ from alembic import context
 from sqlalchemy import create_engine, pool
 
 from app.config import get_settings
+from app.models import Base
 
 logging.basicConfig(format="%(levelname)-5.5s [%(name)s] %(message)s")
 logging.getLogger("alembic").setLevel(logging.INFO)
 
-target_metadata = None
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
