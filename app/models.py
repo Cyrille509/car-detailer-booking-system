@@ -62,12 +62,21 @@ class MessageStatus(StrEnum):
 
 class Business(Base):
     __tablename__ = "business"
+    __table_args__ = (CheckConstraint(r"name ~ '\S'", name="name_not_blank"),)
 
     id: Mapped[UuidPk]
     name: Mapped[str] = mapped_column(String(200))
     # IANA name, e.g. America/New_York
     timezone: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[Timestamp]
+
+    @validates("name")
+    def _visible_name(self, _key: str, value: str) -> str:
+        value = value.strip()
+        # the name opens every automated text, so it needs a visible character
+        if not any(ch.isprintable() and not ch.isspace() for ch in value):
+            raise ValueError("business name is blank")
+        return value
 
     @validates("timezone")
     def _known_timezone(self, _key: str, value: str) -> str:

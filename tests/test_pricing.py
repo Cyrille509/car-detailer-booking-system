@@ -111,6 +111,25 @@ def test_repeated_add_on_is_charged_once():
     assert result.total_minor == 22000
 
 
+def test_add_ons_as_a_bare_string_are_rejected():
+    with pytest.raises(TypeError, match="not a string"):
+        job(add_on_ids="pet_hair")
+
+
+def test_conditions_must_be_a_mapping():
+    # a list of pairs could answer one question twice
+    with pytest.raises(TypeError, match="map each question"):
+        job(conditions=[("stains", "none"), ("stains", "heavy")])
+
+
+def test_job_keeps_its_own_copy_of_answers():
+    answers = {"stains": "none"}
+    request = job(conditions=answers)
+    answers["stains"] = "heavy"
+
+    assert quote(CATALOG, request).total_minor == 18000
+
+
 def test_duration_rounds_up_to_an_event_length():
     assert quote(CATALOG, job()).event_minutes == 180
     # 180 + 45 + 30 = 255

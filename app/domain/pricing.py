@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -65,8 +66,13 @@ class JobRequest:
     conditions: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        # callers may pass a list; a repeated add-on is still one add-on
+        if isinstance(self.add_on_ids, str):
+            raise TypeError("add_on_ids must be a collection of ids, not a string")
+        if not isinstance(self.conditions, Mapping):
+            raise TypeError("conditions must map each question to one answer")
+        # a repeated add-on is still one add-on; copies keep later edits by the caller out
         object.__setattr__(self, "add_on_ids", frozenset(self.add_on_ids))
+        object.__setattr__(self, "conditions", dict(self.conditions))
 
 
 @dataclass(frozen=True)

@@ -18,6 +18,8 @@ AREA = build_service_area(
     [
         pytest.param("US", "07030", Eligibility.ELIGIBLE, "07030", id="listed zip"),
         pytest.param("us", " 07030-1234 ", Eligibility.ELIGIBLE, "07030", id="zip plus four"),
+        pytest.param("US", "07030​", Eligibility.ELIGIBLE, "07030", id="zero-width space pasted"),
+        pytest.param("US", "﻿07030", Eligibility.ELIGIBLE, "07030", id="byte order mark pasted"),
         pytest.param("US", "07087", Eligibility.ELIGIBLE, "07087", id="owner typed lowercase country"),
         pytest.param("US", "０７０３０", Eligibility.ELIGIBLE, "07030", id="fullwidth digits"),
         pytest.param("US", "٠٧٠٣٠", Eligibility.ELIGIBLE, "07030", id="arabic-indic digits"),
@@ -25,6 +27,10 @@ AREA = build_service_area(
         pytest.param("US", "10001", Eligibility.OUT_OF_AREA, "10001", id="zip not listed"),
         pytest.param("CA", "M5V 3L9", Eligibility.OUT_OF_AREA, None, id="country not served"),
         pytest.param("US", "7030", Eligibility.UNCLEAR_POSTAL_CODE, None, id="dropped leading zero"),
+        pytest.param("US", None, Eligibility.NEEDS_POSTAL_CODE, None, id="postal code missing"),
+        pytest.param("US", "  ", Eligibility.NEEDS_POSTAL_CODE, None, id="postal code blank"),
+        pytest.param("US", "​", Eligibility.NEEDS_POSTAL_CODE, None, id="postal code only invisible"),
+        pytest.param("CA", None, Eligibility.OUT_OF_AREA, None, id="country not served, no postal code"),
         pytest.param(None, "07030", Eligibility.NEEDS_COUNTRY, None, id="country not stated"),
         pytest.param("USA", "07030", Eligibility.NEEDS_COUNTRY, None, id="country not a code"),
         pytest.param("ÜS", "07030", Eligibility.NEEDS_COUNTRY, None, id="country not ascii"),
@@ -34,6 +40,10 @@ def test_check_service_area(country, postal_code, eligibility, normalized):
     result = check_service_area(AREA, country, postal_code)
 
     assert (result.eligibility, result.postal_code) == (eligibility, normalized)
+
+
+def test_owner_codes_pasted_with_invisible_characters_are_cleaned():
+    assert build_service_area([("US", "​07030")]).allowed == {("US", "07030")}
 
 
 @pytest.mark.parametrize(

@@ -20,6 +20,7 @@ class Eligibility(StrEnum):
     OUT_OF_AREA = "OUT_OF_AREA"
     NEEDS_REVIEW = "NEEDS_REVIEW"
     NEEDS_COUNTRY = "NEEDS_COUNTRY"
+    NEEDS_POSTAL_CODE = "NEEDS_POSTAL_CODE"
     UNCLEAR_POSTAL_CODE = "UNCLEAR_POSTAL_CODE"
 
 
@@ -63,13 +64,15 @@ def build_service_area(
     return area
 
 
-def check_service_area(area: ServiceArea, country: str | None, postal_code: str) -> AreaCheck:
+def check_service_area(area: ServiceArea, country: str | None, postal_code: str | None) -> AreaCheck:
     # country is what the customer stated, never guessed from the phone number
     country = (country or "").strip().upper()
     if len(country) != 2 or not (country.isascii() and country.isalpha()):
         return AreaCheck(Eligibility.NEEDS_COUNTRY)
     if country not in area.countries:
         return AreaCheck(Eligibility.OUT_OF_AREA)
+    if not _clean(postal_code or ""):
+        return AreaCheck(Eligibility.NEEDS_POSTAL_CODE)
     code = normalize_postal_code(country, postal_code)
     if code is None:
         return AreaCheck(Eligibility.UNCLEAR_POSTAL_CODE)
@@ -81,8 +84,12 @@ def check_service_area(area: ServiceArea, country: str | None, postal_code: str)
 
 
 def _clean(raw: str) -> str:
-    # digits from other scripts or fullwidth keyboards become 0-9
-    text = "".join(str(unicodedata.decimal(ch)) if ch.isdecimal() else ch for ch in raw)
+    # invisible characters from copy-paste are dropped; digits from other scripts become 0-9
+    text = "".join(
+        str(unicodedata.decimal(ch)) if ch.isdecimal() else ch
+        for ch in raw
+        if unicodedata.category(ch) != "Cf"
+    )
     return " ".join(text.upper().split())
 
 

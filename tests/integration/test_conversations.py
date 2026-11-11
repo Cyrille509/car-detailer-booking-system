@@ -134,5 +134,7 @@ def test_queued_replies_keep_insertion_order(session, conversation):
 
 
 def test_body_over_twilio_limit_is_rejected(session, conversation):
+    add_message(session, conversation, body="x" * 1600)
+
     with pytest.raises(DataError):
         add_message(session, conversation, body="x" * 1601)
