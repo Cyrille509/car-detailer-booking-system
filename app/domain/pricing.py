@@ -64,6 +64,10 @@ class JobRequest:
     # question -> answer
     conditions: dict[str, str] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        # callers may pass a list; a repeated add-on is still one add-on
+        object.__setattr__(self, "add_on_ids", frozenset(self.add_on_ids))
+
 
 @dataclass(frozen=True)
 class Line:
@@ -106,6 +110,9 @@ def quote(catalog: Catalog, job: JobRequest) -> Quote:
         lines.append(Line(LineKind.ADD_ON, add_on_id, add_on.price_minor))
         minutes += add_on.minutes
 
+    questions = {question for question, _ in catalog.conditions}
+    if unanswered := sorted(questions - set(job.conditions)):
+        raise PricingError(f"unanswered condition question: {', '.join(unanswered)}")
     for question, answer in sorted(job.conditions.items()):
         adjustment = catalog.conditions.get((question, answer))
         if adjustment is None:

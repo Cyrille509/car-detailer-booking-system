@@ -21,7 +21,10 @@ def engine() -> Engine:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
     except (ValidationError, OperationalError) as exc:
-        pytest.skip(f"postgres unavailable (copy .env.example to .env, run docker compose up -d): {exc}")
+        pytest.fail(
+            "postgres unavailable (copy .env.example to .env and run docker compose up -d, "
+            f"or pass --ignore=tests/integration to run without it): {exc}"
+        )
     return engine
 
 

@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import (
     BigInteger,
@@ -18,7 +19,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, validates
 
 UuidPk = Annotated[uuid.UUID, mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))]
 Timestamp = Annotated[datetime, mapped_column(DateTime(timezone=True), server_default=func.now())]
@@ -67,6 +68,14 @@ class Business(Base):
     # IANA name, e.g. America/New_York
     timezone: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[Timestamp]
+
+    @validates("timezone")
+    def _known_timezone(self, _key: str, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError(f"unknown timezone {value!r}") from None
+        return value
 
 
 class Customer(Base):
@@ -121,6 +130,8 @@ class Message(Base):
         ),
         UniqueConstraint("provider", "provider_account", "provider_message_id"),
         Index("ix_message_conversation_id_seq", "conversation_id", "seq"),
+        # inbound texts are only ever RECEIVED; outbound ones never are
+        CheckConstraint("(direction = 'INBOUND') = (status = 'RECEIVED')", name="direction_status"),
     )
 
     id: Mapped[UuidPk]

@@ -1,5 +1,5 @@
 import pytest
-from sqlalchemy import text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -34,14 +34,15 @@ def add_conversation(session, customer, **fields):
 
 def add_message(session, conversation, **fields):
     defaults = {
+        "business_id": conversation.business_id,
+        "conversation_id": conversation.id,
         "direction": MessageDirection.INBOUND,
         "status": MessageStatus.RECEIVED,
         "provider": "twilio",
         "provider_account": "AC0001",
         "body": "suv full detail, dog hair in the back",
     }
-    message = Message(business_id=conversation.business_id, conversation_id=conversation.id, **(defaults | fields))
-    return add(session, message)
+    return add(session, Message(**(defaults | fields)))
 
 
 @pytest.fixture
@@ -92,11 +93,35 @@ def test_stale_conversation_update_is_rejected(session, conversation):
         session.flush()
 
 
+def test_message_cannot_use_another_business_conversation(session, conversation):
+    with pytest.raises(IntegrityError):
+        add_message(session, conversation, business_id=add_business(session).id)
+
+
 def test_provider_message_is_stored_once(session, conversation):
     add_message(session, conversation, provider_message_id="SM0001")
 
     with pytest.raises(IntegrityError):
         add_message(session, conversation, provider_message_id="SM0001")
+
+
+def test_same_text_with_new_provider_ids_is_kept(session, conversation):
+    for provider_message_id in ("SM0001", "SM0002"):
+        add_message(session, conversation, provider_message_id=provider_message_id, body="saturday?")
+
+    stored = session.scalar(
+        select(func.count()).select_from(Message).where(Message.conversation_id == conversation.id)
+    )
+    assert stored == 2
+
+
+@pytest.mark.parametrize(
+    ("direction", "status"),
+    [(MessageDirection.INBOUND, MessageStatus.QUEUED), (MessageDirection.OUTBOUND, MessageStatus.RECEIVED)],
+)
+def test_status_must_match_direction(session, conversation, direction, status):
+    with pytest.raises(IntegrityError):
+        add_message(session, conversation, direction=direction, status=status)
 
 
 def test_queued_replies_keep_insertion_order(session, conversation):
