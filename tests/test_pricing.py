@@ -36,7 +36,13 @@ CATALOG = Catalog(
 
 
 def job(**fields) -> JobRequest:
-    return JobRequest(**({"postal_code": "07030", "vehicle_class": "suv", "package_id": "full_detail"} | fields))
+    defaults = {
+        "postal_code": "07030",
+        "vehicle_class": "suv",
+        "package_id": "full_detail",
+        "conditions": {"stains": "none"},
+    }
+    return JobRequest(**(defaults | fields))
 
 
 def test_suv_full_detail_with_pet_hair():
@@ -90,11 +96,38 @@ def test_condition_answers_need_a_published_rule():
         ({"add_on_ids": frozenset({"engine_bay"})}, "unknown add-on"),
         ({"postal_code": "90210"}, "no zone"),
         ({"postal_code": "07087"}, "no tax rate"),
+        ({"conditions": {}}, "unanswered condition question: stains"),
     ],
 )
 def test_unpriced_work_is_never_quoted(fields, reason):
     with pytest.raises(PricingError, match=reason):
         quote(CATALOG, job(**fields))
+
+
+def test_repeated_add_on_is_charged_once():
+    result = quote(CATALOG, job(add_on_ids=["pet_hair", "pet_hair"]))
+
+    assert [line.ref for line in result.lines] == ["full_detail", "pet_hair"]
+    assert result.total_minor == 22000
+
+
+def test_add_ons_as_a_bare_string_are_rejected():
+    with pytest.raises(TypeError, match="not a string"):
+        job(add_on_ids="pet_hair")
+
+
+def test_conditions_must_be_a_mapping():
+    # a list of pairs could answer one question twice
+    with pytest.raises(TypeError, match="map each question"):
+        job(conditions=[("stains", "none"), ("stains", "heavy")])
+
+
+def test_job_keeps_its_own_copy_of_answers():
+    answers = {"stains": "none"}
+    request = job(conditions=answers)
+    answers["stains"] = "heavy"
+
+    assert quote(CATALOG, request).total_minor == 18000
 
 
 def test_duration_rounds_up_to_an_event_length():

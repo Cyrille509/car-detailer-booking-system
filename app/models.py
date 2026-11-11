@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import (
     BigInteger,
@@ -18,7 +19,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, validates
 
 UuidPk = Annotated[uuid.UUID, mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))]
 Timestamp = Annotated[datetime, mapped_column(DateTime(timezone=True), server_default=func.now())]
@@ -61,12 +62,29 @@ class MessageStatus(StrEnum):
 
 class Business(Base):
     __tablename__ = "business"
+    __table_args__ = (CheckConstraint(r"name ~ '\S'", name="name_not_blank"),)
 
     id: Mapped[UuidPk]
     name: Mapped[str] = mapped_column(String(200))
     # IANA name, e.g. America/New_York
     timezone: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[Timestamp]
+
+    @validates("name")
+    def _visible_name(self, _key: str, value: str) -> str:
+        value = value.strip()
+        # the name opens every automated text, so it needs a visible character
+        if not any(ch.isprintable() and not ch.isspace() for ch in value):
+            raise ValueError("business name is blank")
+        return value
+
+    @validates("timezone")
+    def _known_timezone(self, _key: str, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError(f"unknown timezone {value!r}") from None
+        return value
 
 
 class Customer(Base):
@@ -121,6 +139,8 @@ class Message(Base):
         ),
         UniqueConstraint("provider", "provider_account", "provider_message_id"),
         Index("ix_message_conversation_id_seq", "conversation_id", "seq"),
+        # inbound texts are only ever RECEIVED; outbound ones never are
+        CheckConstraint("(direction = 'INBOUND') = (status = 'RECEIVED')", name="direction_status"),
     )
 
     id: Mapped[UuidPk]

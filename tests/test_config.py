@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -22,3 +24,18 @@ def test_unknown_environment_is_rejected(monkeypatch):
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+def test_environment_is_required(monkeypatch):
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.setenv("DATABASE_URL", DATABASE_URL)
+
+    with pytest.raises(ValidationError, match="environment"):
+        Settings(_env_file=None)
+
+
+def test_env_file_is_anchored_to_the_project_folder():
+    env_file = Settings.model_config["env_file"]
+
+    assert env_file.is_absolute()
+    assert env_file == Path(__file__).resolve().parents[1] / ".env"
