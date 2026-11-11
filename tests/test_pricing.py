@@ -7,11 +7,11 @@ from pydantic import ValidationError
 from app.domain.pricing import (
     MINIMUM_DEPOSIT_MINOR,
     Catalog,
-    JobRequest,
     Line,
     LineKind,
     Package,
     PricingError,
+    QuoteRequest,
     quote,
 )
 from app.domain.service_area import AreaCheck, Eligibility, check_service_area
@@ -60,7 +60,7 @@ def edited(path: str, value) -> dict:
     return settings
 
 
-def job(**fields) -> JobRequest:
+def job(**fields) -> QuoteRequest:
     defaults = {
         "country": "US",
         "postal_code": "07030",
@@ -68,7 +68,7 @@ def job(**fields) -> JobRequest:
         "package_id": "full_detail",
         "conditions": {"stains": "none"},
     }
-    return JobRequest(**(defaults | fields))
+    return QuoteRequest(**(defaults | fields))
 
 
 def test_suv_full_detail_with_pet_hair():
@@ -139,15 +139,23 @@ def test_repeated_add_on_is_charged_once():
     assert result.total_minor == 22000
 
 
-def test_add_ons_as_a_bare_string_are_rejected():
-    with pytest.raises(TypeError, match="not a string"):
-        job(add_on_ids="pet_hair")
-
-
-def test_conditions_must_be_a_mapping():
-    # a list of pairs could answer one question twice
-    with pytest.raises(TypeError, match="map each question"):
-        job(conditions=[("stains", "none"), ("stains", "heavy")])
+@pytest.mark.parametrize(
+    ("fields", "reason"),
+    [
+        pytest.param({"add_on_ids": "pet_hair"}, "valid frozenset", id="add-ons as one string"),
+        pytest.param({"add_on_ids": ["pet_hair", None]}, "valid string", id="add-on id missing"),
+        # a list of pairs could answer one question twice
+        pytest.param({"conditions": [("stains", "none"), ("stains", "heavy")]}, "valid dictionary", id="answer pairs"),
+        pytest.param({"conditions": {"stains": None}}, "valid string", id="answer missing"),
+        pytest.param({"conditions": {"stains": 2}}, "valid string", id="answer as a number"),
+        pytest.param({"country": "us"}, "should match pattern", id="country not normalized"),
+        pytest.param({"postal_code": ""}, "at least 1 character", id="postal code empty"),
+        pytest.param({"tip_minor": 500}, "Extra inputs are not permitted", id="unknown field"),
+    ],
+)
+def test_malformed_requests_are_refused(fields, reason):
+    with pytest.raises(ValidationError, match=reason):
+        job(**fields)
 
 
 def test_job_keeps_its_own_copy_of_answers():

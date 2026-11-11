@@ -1,5 +1,4 @@
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, Literal, Self
 
@@ -119,25 +118,18 @@ class Catalog(Published):
         )
 
 
-@dataclass(frozen=True)
-class JobRequest:
-    # normalized, as the service area check returns them
-    country: str
-    postal_code: str
-    vehicle_class: str
-    package_id: str
-    add_on_ids: frozenset[str] = frozenset()
-    # question -> answer
-    conditions: dict[str, str] = field(default_factory=dict)
+class QuoteRequest(BaseModel):
+    # validated copies: a repeated add-on is one add-on, and later edits by the caller stay out
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
-    def __post_init__(self) -> None:
-        if isinstance(self.add_on_ids, str):
-            raise TypeError("add_on_ids must be a collection of ids, not a string")
-        if not isinstance(self.conditions, Mapping):
-            raise TypeError("conditions must map each question to one answer")
-        # a repeated add-on is still one add-on; copies keep later edits by the caller out
-        object.__setattr__(self, "add_on_ids", frozenset(self.add_on_ids))
-        object.__setattr__(self, "conditions", dict(self.conditions))
+    # normalized, as the service area check returns them
+    country: Annotated[str, Field(pattern=r"^[A-Z]{2}$")]
+    postal_code: Annotated[str, Field(min_length=1, max_length=16)]
+    vehicle_class: Id
+    package_id: Id
+    add_on_ids: frozenset[Id] = frozenset()
+    # question -> answer
+    conditions: dict[Id, Id] = {}
 
 
 @dataclass(frozen=True)
@@ -159,7 +151,7 @@ class Quote:
     buffer_minutes: int
 
 
-def quote(catalog: Catalog, job: JobRequest) -> Quote:
+def quote(catalog: Catalog, job: QuoteRequest) -> Quote:
     package = catalog.packages.get(job.package_id)
     if package is None:
         raise PricingError(f"unknown package {job.package_id}")

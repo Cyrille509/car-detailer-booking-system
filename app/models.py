@@ -4,6 +4,7 @@ from enum import StrEnum
 from typing import Annotated, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from pydantic import TypeAdapter
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
@@ -19,13 +20,16 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, validates
 
-from app.domain.pricing import Catalog
+from app.domain.pricing import Catalog, Id, PricingError, QuoteRequest
 
 UuidPk = Annotated[uuid.UUID, mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))]
 Timestamp = Annotated[datetime, mapped_column(DateTime(timezone=True), server_default=func.now())]
+# write-time checks for job request details, matching what pricing accepts
+ADD_ON_IDS = TypeAdapter(list[Id])
+ANSWERS = TypeAdapter(dict[Id, Id])
 
 
 def enum_type(enum: type[StrEnum], name: str) -> Enum:
@@ -182,3 +186,67 @@ class Message(Base):
     # Twilio's documented body limit
     body: Mapped[str] = mapped_column(String(1600))
     created_at: Mapped[Timestamp]
+
+
+class JobRequest(Base):
+    __tablename__ = "job_request"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["business_id", "conversation_id"], ["conversation.business_id", "conversation.id"]
+        ),
+        CheckConstraint("country ~ '^[A-Z]{2}$'", name="country_code"),
+        CheckConstraint("array_position(add_on_ids, NULL) IS NULL", name="add_on_ids_not_null"),
+        CheckConstraint("jsonb_typeof(conditions) = 'object'", name="conditions_object"),
+    )
+
+    id: Mapped[UuidPk]
+    business_id: Mapped[uuid.UUID]
+    conversation_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    # one vehicle's details, each empty until the customer gives it;
+    # the location is stored as the service area check normalizes it
+    country: Mapped[str | None] = mapped_column(String(2))
+    postal_code: Mapped[str | None] = mapped_column(String(16))
+    vehicle_class: Mapped[str | None] = mapped_column(String(40))
+    package_id: Mapped[str | None] = mapped_column(String(40))
+    add_on_ids: Mapped[list[str]] = mapped_column(ARRAY(String(40)), server_default=text("'{}'"))
+    # question -> answer
+    conditions: Mapped[dict[str, str]] = mapped_column(JSONB, server_default=text("'{}'"))
+    # the customer's words for work the catalog has no price for; the owner prices it
+    unresolved_scope: Mapped[str | None] = mapped_column(String(1600))
+    # bumped on every update, so two texts handled at once can't overwrite each other
+    revision: Mapped[int] = mapped_column()
+    created_at: Mapped[Timestamp]
+
+    __mapper_args__ = {"version_id_col": revision}
+
+    @validates("add_on_ids")
+    def _distinct_add_ons(self, _key: str, value: list[str]) -> list[str]:
+        # a bare string is refused, not split into letters; a repeated add-on is one add-on
+        return list(dict.fromkeys(ADD_ON_IDS.validate_python(value)))
+
+    @validates("conditions")
+    def _answers_are_ids(self, _key: str, value: dict[str, str]) -> dict[str, str]:
+        return ANSWERS.validate_python(value)
+
+    @validates("unresolved_scope")
+    def _blank_scope_is_none(self, _key: str, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+    @property
+    def missing(self) -> list[str]:
+        required = ("country", "postal_code", "vehicle_class", "package_id")
+        return [name for name in required if getattr(self, name) is None]
+
+    def quote_request(self) -> QuoteRequest:
+        if self.missing:
+            raise PricingError(f"still needed: {', '.join(self.missing)}")
+        return QuoteRequest(
+            country=self.country,
+            postal_code=self.postal_code,
+            vehicle_class=self.vehicle_class,
+            package_id=self.package_id,
+            add_on_ids=self.add_on_ids,
+            conditions=self.conditions,
+        )
