@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import (
@@ -19,7 +19,10 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, validates
+
+from app.domain.pricing import Catalog
 
 UuidPk = Annotated[uuid.UUID, mapped_column(primary_key=True, server_default=text("gen_random_uuid()"))]
 Timestamp = Annotated[datetime, mapped_column(DateTime(timezone=True), server_default=func.now())]
@@ -85,6 +88,28 @@ class Business(Base):
         except (ZoneInfoNotFoundError, ValueError):
             raise ValueError(f"unknown timezone {value!r}") from None
         return value
+
+
+class CatalogVersion(Base):
+    __tablename__ = "catalog_version"
+    __table_args__ = (
+        UniqueConstraint("business_id", "version"),
+        CheckConstraint("version > 0", name="version_positive"),
+    )
+
+    id: Mapped[UuidPk]
+    business_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("business.id"))
+    # counts up from 1 within each business
+    version: Mapped[int]
+    # a validated Catalog; a trigger refuses edits once published
+    content: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    # Supabase user id of whoever published it
+    published_by: Mapped[uuid.UUID]
+    published_at: Mapped[Timestamp]
+
+    @property
+    def catalog(self) -> Catalog:
+        return Catalog.model_validate(self.content)
 
 
 class Customer(Base):
