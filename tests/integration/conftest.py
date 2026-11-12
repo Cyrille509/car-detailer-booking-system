@@ -1,13 +1,16 @@
-from collections.abc import Iterator
+import time
+import uuid
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
 from alembic import command
 from alembic.config import Config
 from pydantic import ValidationError
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 from app.db import get_engine
 
@@ -44,3 +47,39 @@ def session(migrated_engine: Engine) -> Iterator[Session]:
         with Session(connection, join_transaction_mode="create_savepoint") as session:
             yield session
         transaction.rollback()
+
+
+@pytest.fixture
+def scratch_engine(engine: Engine) -> Iterator[Engine]:
+    # an empty database of its own, for tests that commit or change the schema
+    name = f"scratch_{uuid.uuid4().hex[:12]}"
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as admin:
+        admin.execute(text(f'CREATE DATABASE "{name}"'))
+    scratch = create_engine(
+        engine.url.set(database=name), poolclass=NullPool, connect_args={"connect_timeout": 5}
+    )
+    yield scratch
+    scratch.dispose()
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as admin:
+        admin.execute(text(f'DROP DATABASE "{name}" WITH (FORCE)'))
+
+
+@pytest.fixture
+def wait_for_blocked_query(scratch_engine: Engine) -> Callable[[], None]:
+    def wait(seconds: float = 5.0) -> None:
+        # autocommit, because postgres keeps one activity snapshot per transaction
+        with scratch_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as watcher:
+            deadline = time.monotonic() + seconds
+            while time.monotonic() < deadline:
+                blocked = watcher.scalar(
+                    text(
+                        "SELECT count(*) FROM pg_stat_activity "
+                        "WHERE datname = current_database() AND wait_event_type = 'Lock'"
+                    )
+                )
+                if blocked:
+                    return
+                time.sleep(0.02)
+        raise AssertionError("no query ever waited for a lock")
+
+    return wait

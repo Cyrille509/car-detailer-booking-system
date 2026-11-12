@@ -1,9 +1,6 @@
-import uuid
-
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
-from sqlalchemy.pool import NullPool
+from sqlalchemy import text
 
 from app.db import get_engine
 from app.main import create_app
@@ -13,20 +10,6 @@ def get_ready(engine):
     app = create_app()
     app.dependency_overrides[get_engine] = lambda: engine
     return TestClient(app).get("/ready")
-
-
-@pytest.fixture
-def scratch_engine(engine):
-    name = f"scratch_{uuid.uuid4().hex[:12]}"
-    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as admin:
-        admin.execute(text(f'CREATE DATABASE "{name}"'))
-    scratch = create_engine(
-        engine.url.set(database=name), poolclass=NullPool, connect_args={"connect_timeout": 5}
-    )
-    yield scratch
-    scratch.dispose()
-    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as admin:
-        admin.execute(text(f'DROP DATABASE "{name}" WITH (FORCE)'))
 
 
 def test_ready_returns_ok_when_migrated(migrated_engine):
