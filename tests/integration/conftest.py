@@ -1,5 +1,6 @@
+import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -61,3 +62,24 @@ def scratch_engine(engine: Engine) -> Iterator[Engine]:
     scratch.dispose()
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as admin:
         admin.execute(text(f'DROP DATABASE "{name}" WITH (FORCE)'))
+
+
+@pytest.fixture
+def wait_for_blocked_query(scratch_engine: Engine) -> Callable[[], None]:
+    def wait(seconds: float = 5.0) -> None:
+        # autocommit, because postgres keeps one activity snapshot per transaction
+        with scratch_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as watcher:
+            deadline = time.monotonic() + seconds
+            while time.monotonic() < deadline:
+                blocked = watcher.scalar(
+                    text(
+                        "SELECT count(*) FROM pg_stat_activity "
+                        "WHERE datname = current_database() AND wait_event_type = 'Lock'"
+                    )
+                )
+                if blocked:
+                    return
+                time.sleep(0.02)
+        raise AssertionError("no query ever waited for a lock")
+
+    return wait

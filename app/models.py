@@ -67,6 +67,16 @@ class MessageStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class EstimateStatus(StrEnum):
+    DRAFT = "DRAFT"
+    NEEDS_REVIEW = "NEEDS_REVIEW"
+    ISSUED = "ISSUED"
+    ACCEPTED = "ACCEPTED"
+    SUPERSEDED = "SUPERSEDED"
+    EXPIRED = "EXPIRED"
+    DECLINED = "DECLINED"
+
+
 class Business(Base):
     __tablename__ = "business"
     __table_args__ = (CheckConstraint(r"name ~ '\S'", name="name_not_blank"),)
@@ -98,6 +108,7 @@ class CatalogVersion(Base):
     __tablename__ = "catalog_version"
     __table_args__ = (
         UniqueConstraint("business_id", "version"),
+        UniqueConstraint("business_id", "id"),
         CheckConstraint("version > 0", name="version_positive"),
     )
 
@@ -194,6 +205,7 @@ class JobRequest(Base):
         ForeignKeyConstraint(
             ["business_id", "conversation_id"], ["conversation.business_id", "conversation.id"]
         ),
+        UniqueConstraint("business_id", "id"),
         CheckConstraint("country ~ '^[A-Z]{2}$'", name="country_code"),
         CheckConstraint("array_position(add_on_ids, NULL) IS NULL", name="add_on_ids_not_null"),
         CheckConstraint("jsonb_typeof(conditions) = 'object'", name="conditions_object"),
@@ -250,3 +262,47 @@ class JobRequest(Base):
             add_on_ids=self.add_on_ids,
             conditions=self.conditions,
         )
+
+
+class Estimate(Base):
+    __tablename__ = "estimate"
+    __table_args__ = (
+        ForeignKeyConstraint(["business_id", "job_request_id"], ["job_request.business_id", "job_request.id"]),
+        ForeignKeyConstraint(
+            ["business_id", "catalog_version_id"], ["catalog_version.business_id", "catalog_version.id"]
+        ),
+        UniqueConstraint("job_request_id", "version"),
+        # one open estimate per vehicle; closed versions stay as history
+        Index(
+            "uq_estimate_open",
+            "job_request_id",
+            unique=True,
+            postgresql_where=text("status IN ('DRAFT', 'NEEDS_REVIEW', 'ISSUED', 'ACCEPTED')"),
+        ),
+        CheckConstraint("version > 0", name="version_positive"),
+        CheckConstraint("subtotal_minor >= 0 AND tax_minor >= 0", name="amounts_not_negative"),
+        CheckConstraint("total_minor = subtotal_minor + tax_minor", name="total_adds_up"),
+        CheckConstraint("deposit_minor > 0 AND deposit_minor <= total_minor", name="deposit_within_total"),
+        CheckConstraint("expires_at > issued_at", name="expires_after_issue"),
+    )
+
+    id: Mapped[UuidPk]
+    business_id: Mapped[uuid.UUID]
+    job_request_id: Mapped[uuid.UUID]
+    catalog_version_id: Mapped[uuid.UUID]
+    # counts up from 1 for each job request
+    version: Mapped[int]
+    # the only column that changes after issue; a trigger refuses the rest
+    status: Mapped[EstimateStatus] = mapped_column(enum_type(EstimateStatus, "status"))
+    # the job request details exactly as priced
+    intake: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    lines: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    currency: Mapped[str] = mapped_column(String(3))
+    subtotal_minor: Mapped[int] = mapped_column(BigInteger)
+    tax_minor: Mapped[int] = mapped_column(BigInteger)
+    total_minor: Mapped[int] = mapped_column(BigInteger)
+    deposit_minor: Mapped[int] = mapped_column(BigInteger)
+    event_minutes: Mapped[int]
+    buffer_minutes: Mapped[int]
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

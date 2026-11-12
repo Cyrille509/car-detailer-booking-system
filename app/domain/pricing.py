@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
 from app.domain.service_area import ServiceArea, normalize_listed_code
 
@@ -130,6 +130,11 @@ class QuoteRequest(BaseModel):
     add_on_ids: frozenset[Id] = frozenset()
     # question -> answer
     conditions: dict[Id, Id] = {}
+
+    @field_serializer("add_on_ids")
+    def _sorted_add_ons(self, add_on_ids: frozenset[str]) -> list[str]:
+        # sets have no order; a sorted list keeps saved snapshots identical run to run
+        return sorted(add_on_ids)
 
 
 @dataclass(frozen=True)

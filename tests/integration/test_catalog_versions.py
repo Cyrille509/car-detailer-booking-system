@@ -1,4 +1,3 @@
-import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
@@ -131,23 +130,6 @@ def test_database_refuses_bad_version_numbers(session, business, version, constr
     assert caught.value.orig.diag.constraint_name == constraint
 
 
-def wait_for_blocked_query(engine, seconds=5.0):
-    # autocommit, because postgres keeps one activity snapshot per transaction
-    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as watcher:
-        deadline = time.monotonic() + seconds
-        while time.monotonic() < deadline:
-            blocked = watcher.scalar(
-                text(
-                    "SELECT count(*) FROM pg_stat_activity "
-                    "WHERE datname = current_database() AND wait_event_type = 'Lock'"
-                )
-            )
-            if blocked:
-                return
-            time.sleep(0.02)
-    raise AssertionError("second publish never waited")
-
-
 @pytest.fixture
 def committed_business_id(scratch_engine) -> uuid.UUID:
     Base.metadata.create_all(scratch_engine)
@@ -157,14 +139,14 @@ def committed_business_id(scratch_engine) -> uuid.UUID:
     return business_id
 
 
-def test_concurrent_publishes_take_turns(scratch_engine, committed_business_id):
+def test_concurrent_publishes_take_turns(scratch_engine, committed_business_id, wait_for_blocked_query):
     business_id = committed_business_id
     first, second = Session(scratch_engine), Session(scratch_engine)
     with ThreadPoolExecutor(max_workers=1) as pool:
         try:
             publish_catalog(first, business_id, SETTINGS, OWNER)
             waiting = pool.submit(publish_catalog, second, business_id, RAISED, OWNER)
-            wait_for_blocked_query(scratch_engine)
+            wait_for_blocked_query()
             first.commit()
             # without the lock, the second publish would also pick version 1 and fail
             assert waiting.result(timeout=10).version == 2

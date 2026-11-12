@@ -158,6 +158,13 @@ def test_malformed_requests_are_refused(fields, reason):
         job(**fields)
 
 
+def test_saved_request_lists_add_ons_in_one_order():
+    ids = ["wax", "tires", "seats", "pet_hair", "odor", "glass", "engine_bay", "carpet"]
+
+    # 8 ids land in sorted order by chance once in 40320 runs
+    assert job(add_on_ids=ids).model_dump(mode="json")["add_on_ids"] == sorted(ids)
+
+
 def test_job_keeps_its_own_copy_of_answers():
     answers = {"stains": "none"}
     request = job(conditions=answers)
