@@ -67,6 +67,11 @@ class MessageStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class ConsentStatus(StrEnum):
+    OPTED_IN = "OPTED_IN"
+    OPTED_OUT = "OPTED_OUT"
+
+
 class EstimateStatus(StrEnum):
     DRAFT = "DRAFT"
     NEEDS_REVIEW = "NEEDS_REVIEW"
@@ -178,6 +183,7 @@ class Message(Base):
             ["business_id", "conversation_id"], ["conversation.business_id", "conversation.id"]
         ),
         UniqueConstraint("provider", "provider_account", "provider_message_id"),
+        UniqueConstraint("seq"),
         Index("ix_message_conversation_id_seq", "conversation_id", "seq"),
         # inbound texts are only ever RECEIVED; outbound ones never are
         CheckConstraint("(direction = 'INBOUND') = (status = 'RECEIVED')", name="direction_status"),
@@ -197,6 +203,21 @@ class Message(Base):
     # Twilio's documented body limit
     body: Mapped[str] = mapped_column(String(1600))
     created_at: Mapped[Timestamp]
+
+
+class SmsConsent(Base):
+    __tablename__ = "sms_consent"
+    __table_args__ = (
+        ForeignKeyConstraint(["business_id", "customer_id"], ["customer.business_id", "customer.id"]),
+    )
+
+    # one per customer, kept apart from the conversation; no row means the customer texted first
+    customer_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    business_id: Mapped[uuid.UUID]
+    status: Mapped[ConsentStatus] = mapped_column(enum_type(ConsentStatus, "status"))
+    # the text that set it; one handled late never overrides a later one
+    message_seq: Mapped[int] = mapped_column(BigInteger, ForeignKey("message.seq"))
+    changed_at: Mapped[Timestamp]
 
 
 class JobRequest(Base):
