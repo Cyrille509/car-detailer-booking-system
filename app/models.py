@@ -84,12 +84,19 @@ class EstimateStatus(StrEnum):
 
 class Business(Base):
     __tablename__ = "business"
-    __table_args__ = (CheckConstraint(r"name ~ '\S'", name="name_not_blank"),)
+    __table_args__ = (
+        CheckConstraint(r"name ~ '\S'", name="name_not_blank"),
+        # incoming texts find their business by this number, so no two businesses share one
+        UniqueConstraint("texting_number"),
+        CheckConstraint(r"texting_number ~ '^\+[1-9][0-9]{1,14}$'", name="texting_number_e164"),
+    )
 
     id: Mapped[UuidPk]
     name: Mapped[str] = mapped_column(String(200))
     # IANA name, e.g. America/New_York
     timezone: Mapped[str] = mapped_column(String(64))
+    # empty until the owner connects a number
+    texting_number: Mapped[str | None] = mapped_column(String(16))
     created_at: Mapped[Timestamp]
 
     @validates("name")
