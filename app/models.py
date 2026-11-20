@@ -67,6 +67,17 @@ class MessageStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class CaseStatus(StrEnum):
+    OPEN = "OPEN"
+    IN_PROGRESS = "IN_PROGRESS"
+    AWAITING_CUSTOMER = "AWAITING_CUSTOMER"
+    RESOLVED = "RESOLVED"
+
+
+class CaseReason(StrEnum):
+    CUSTOMER_ASKED = "CUSTOMER_ASKED"
+
+
 class ConsentStatus(StrEnum):
     OPTED_IN = "OPTED_IN"
     OPTED_OUT = "OPTED_OUT"
@@ -334,3 +345,32 @@ class Estimate(Base):
     buffer_minutes: Mapped[int]
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class OwnerCase(Base):
+    __tablename__ = "owner_case"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["business_id", "conversation_id"], ["conversation.business_id", "conversation.id"]
+        ),
+        # one unresolved case per conversation and reason; resolved ones stay as history
+        Index(
+            "uq_owner_case_unresolved",
+            "conversation_id",
+            "reason",
+            unique=True,
+            postgresql_where=text("status <> 'RESOLVED'"),
+        ),
+        CheckConstraint(r"next_action ~ '\S'", name="next_action_not_blank"),
+        CheckConstraint("(status = 'RESOLVED') = (resolved_at IS NOT NULL)", name="resolved_at_matches_status"),
+    )
+
+    id: Mapped[UuidPk]
+    business_id: Mapped[uuid.UUID]
+    conversation_id: Mapped[uuid.UUID]
+    reason: Mapped[CaseReason] = mapped_column(enum_type(CaseReason, "reason"))
+    status: Mapped[CaseStatus] = mapped_column(enum_type(CaseStatus, "status"))
+    # what the owner should do next, shown in the inbox
+    next_action: Mapped[str] = mapped_column(String(200))
+    opened_at: Mapped[Timestamp]
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

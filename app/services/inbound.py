@@ -16,8 +16,10 @@ from app.models import (
     Message,
     MessageDirection,
     MessageStatus,
+    OwnerCase,
 )
 from app.services.consent import apply_keyword
+from app.services.handoff import hand_to_owner
 
 Phone = Annotated[str, Field(pattern=r"^\+[1-9][0-9]{1,14}$")]
 
@@ -41,6 +43,8 @@ class Received:
     # a redelivery of a text already stored and handled
     duplicate: bool
     keyword: Keyword | None = None
+    # opened or already waiting when the customer asked for the owner
+    case: OwnerCase | None = None
 
 
 def receive_text(session: Session, inbound: InboundText) -> Received:
@@ -74,7 +78,9 @@ def receive_text(session: Session, inbound: InboundText) -> Received:
     if message_id is None:
         return Received(_stored(session, inbound), duplicate=True)
     message = session.get_one(Message, message_id)
-    return Received(message, duplicate=False, keyword=apply_keyword(session, message))
+    keyword = apply_keyword(session, message)
+    case = hand_to_owner(session, message) if keyword == Keyword.OWNER else None
+    return Received(message, duplicate=False, keyword=keyword, case=case)
 
 
 def _stored(session: Session, inbound: InboundText) -> Message | None:

@@ -6,6 +6,8 @@ class Keyword(StrEnum):
     OPT_OUT = "OPT_OUT"
     OPT_IN = "OPT_IN"
     HELP = "HELP"
+    # the opening text tells customers to reply OWNER for a person
+    OWNER = "OWNER"
 
 
 # Twilio's defaults for long-code numbers. Twilio also opts people back in on YES, but here YES
@@ -14,6 +16,7 @@ KEYWORDS = {
     **dict.fromkeys(["STOP", "STOPALL", "UNSUBSCRIBE", "END", "QUIT", "CANCEL", "REVOKE", "OPTOUT"], Keyword.OPT_OUT),
     **dict.fromkeys(["START", "UNSTOP"], Keyword.OPT_IN),
     **dict.fromkeys(["HELP", "INFO"], Keyword.HELP),
+    "OWNER": Keyword.OWNER,
 }
 
 

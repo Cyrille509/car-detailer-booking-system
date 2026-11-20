@@ -22,9 +22,15 @@ def test_help_words(body):
     assert find_keyword(body) == Keyword.HELP
 
 
+@pytest.mark.parametrize("body", ["OWNER", "owner", "Owner.", " OWNER!\n"])
+def test_owner_word(body):
+    assert find_keyword(body) == Keyword.OWNER
+
+
 @pytest.mark.parametrize(
     "body",
     [
+        pytest.param("can the owner come saturday", id="owner inside a sentence"),
         pytest.param("cancel my appointment", id="booking request, not an opt-out"),
         pytest.param("please stop by at 5", id="stop inside a sentence"),
         pytest.param("I want to start over", id="start inside a sentence"),
